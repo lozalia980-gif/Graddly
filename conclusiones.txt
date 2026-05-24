@@ -1,0 +1,212 @@
+ANÁLISIS GENERAL DEL PROYECTO GRADLY
+===============================
+
+1. Arquitectura y componentes clave
+----------------------------------
+- Plataforma: Expo Router + React Native + TypeScript.
+- Backend: Supabase Auth, Supabase Postgres y Storage.
+- Traducción: `src/context/TranslationContext.tsx` + `components/TranslatedText.tsx` + `src/services/translationService.ts`.
+- Tema: `app/_layout.tsx` usa `ThemeProvider`, pero muchas pantallas definen sus propios colores locales.
+- Autenticación: `services/authService.ts` gestiona registro/login, `src/services/authService.ts` solo logout/plan.
+
+2. Puntos fuertes
+-----------------
+- La estructura del DB está bien planteada: `empresas`, `universidades`, `grupos`, `estudiantes`, `solicitudes_horas` y `talentos` generan relaciones coherentes.
+- El dashboard de universidad ya consume datos reales de `empresas` y `grupos` desde Supabase.
+- El flujo de envío de solicitudes de horas incluye `universidad_id`, `empresa_id` y `grupo_id`, lo que coincide con el esquema SQL.
+- El modal de creación de grupos vincula `grupos` con `estudiantes` y crea cuentas Supabase para cada alumno.
+
+3. Inconsistencias detectadas
+-----------------------------
+- `app/dashboard-universidad.tsx` mezcla datos reales con datos de prueba. Hay `gruposDb` cargados desde DB, pero también sigue existiendo `GRUPOS_INITIAL` y muchas tarjetas fijas de ejemplo.
+- `app/iniciosesion.tsx` se duplica casi completamente en `app/(tabs)/index.tsx`. Esto añade confusión y riesgo de comportamiento distinto según ruta.
+- `app/(tabs)/explore.tsx` es código de plantilla Expo no adaptado al proyecto. Debe limpiarse o eliminarse si no se usa.
+- Hay duplicación de servicios: `services/authService.ts` y `src/services/authService.ts`. El primero contiene la lógica principal de backend; el segundo solo logout/updateEmpresaPlan. Esto es peligroso.
+- El tema en `dashboard-universidad.tsx` está invertido: `darkMode ? lightTheme : darkTheme`. El booleano se usa en sentido contrario y puede provocar que el modo claro/oscuro no sea consistente.
+- El proyecto usa colores locales en cada dashboard, en lugar de un sistema de tema centralizado. Esto facilita bugs visuales en modo claro/oscuro.
+
+4. Fallos críticos de lógica
+---------------------------
+- Login por nombre de usuario depende de la tabla `profiles`:
+  - `app/iniciosesion.tsx` y `services/authService.ts` buscan `supabase.from('profiles').select('email')...`.
+  - Pero las funciones de registro (`registerTalento`, `registerEmpresa`, `registerUniversidad`) no insertan registros en `profiles`.
+  - Esto significa que el login por username probablemente no funciona para usuarios nuevos y debe corregirse.
+
+- Hay dos tablas relacionadas con estudiantes en la base de datos:
+  - `alumnos` y `estudiantes`.
+  - La app usa `estudiantes` para los grupos y la lógica de carga, lo que está bien, pero el SQL muestra `alumnos` también. Debemos decidir cuál es la tabla activa o agregar un mapeo claro.
+
+- En `dashboard-universidad.tsx`, la carga de `gruposDb` depende de `section` y no de `universidadId`. Si el usuario ya está en la sección de grupos cuando `universidadId` cambia, la recarga no ocurre automáticamente.
+- `ProfileViewer.tsx` consulta tablas según tipo (`talentos`, `empresas`, `universidades`) y después normaliza campos. Es correcto, pero no hay garantía de que todos los registros tengan los mismos campos, lo cual puede crear inconsistencias en la vista.
+
+5. Relación actual con la base de datos
+---------------------------------------
+- `registerTalento` inserta en `talentos`.
+- `registerEmpresa` inserta en `empresas`.
+- `registerUniversidad` inserta en `universidades`.
+- `createGrupoWithStudents` inserta en `grupos` y `estudiantes`.
+- `dashboard-universidad.tsx` lee `empresas` y `grupos`, y carga `estudiantes` para conteos y `solicitudes_horas` para estado.
+- `ProfileViewer` lee directamente de la tabla correspondiente según perfil.
+
+6. Áreas que recomiendo mejorar
+--------------------------------
+- Unificar el servicio de autenticación en un solo archivo y normalizar las importaciones.
+- Corregir el registro de usuario para que también cree la fila en `profiles` o adaptar el login para usar metadata/otra tabla fiable.
+- Eliminar duplicados no usados: `app/(tabs)/index.tsx`, `app/(tabs)/explore.tsx`, y cualquier `app/iniciosesion.tsx` redundante.
+- Centralizar la paleta de colores y el theme provider. La app ya tiene `constants/theme.ts` y `hooks/use-theme-color.ts`; es mejor migrar todos los dashboards a ese patrón.
+- Arreglar el booleano `darkMode` en `dashboard-universidad.tsx` y usar nombres claros como `isLightMode` si se quiere invertir la lógica.
+- Asegurar que todos los textos visibles y placeholders de inputs usen `TranslatedText` o la función de traducción, porque la traducción actual sólo cubre algunos elementos.
+- Reemplazar datos de muestra fijos en `dashboard-joventalento.tsx` y `dashboard-empresa.tsx` con consultas reales a Supabase cuando estén disponibles.
+- Documentar la diferencia entre `alumnos` y `estudiantes` en la DB, y elegir un único modelo si no hay motivo real para tener ambas tablas.
+
+7. Recomendaciones específicas para la base de datos
+----------------------------------------------------
+- Mantener `grupos.universidad_id`, `estudiantes.grupo_id`, `estudiantes.universidad_id` y `solicitudes_horas` como claves foráneas. Eso ya está bien.
+- Agregar un índice a `grupos.universidad_id` y `estudiantes.grupo_id` si no existen, porque se consultan constantemente.
+- Asegurar que la tabla `profiles` exista y se actualice al registrar usuario si el login por username se quiere mantener.
+- Revisar el uso de `created_at` en `grupos` y `solicitudes_horas`; es correcto, pero hay consultas en la app que usan `order('created_at')` sin seleccionar explícitamente el campo en algunos casos.
+
+8. Conclusión
+-------------
+El proyecto tiene una base sólida: Supabase está bien integrado, la estructura de tableros es válida y la relación entre universidades, grupos, estudiantes y solicitudes está bien pensada.
+
+Sin embargo, hay varias capas aún a pulir:
+- flujo de login/registro con `profiles`
+- duplicados de componentes y páginas
+- mezcla de datos reales y contenido estático
+- sistema de tema fragmentado
+- traducción parcial
+
+Si haces estos ajustes, el proyecto quedará consistente y mucho más escalable.
+
+9. Secciones de cada dashboard y relación esperada con la base de datos
+------------------------------------------------------------------------
+
+dashboard-universidad.tsx
+-------------------------
+- Secciones visibles:
+  - `inicio`: resumen institucional, métricas clave, accesos rápidos.
+  - `explorar`: listado de empresas aliadas y propuestas de horas. Aquí espera cargarse de la tabla `empresas` y mostrar campos como `id`, `nombre`, `industria`, `descripcion`, `plan_seleccionado`.
+  - `grupos`: lista de grupos de la universidad desde `grupos`; cada grupo debe incluir `id`, `nombre`, `carrera`, `created_at`, `studentCount` calculado desde `estudiantes`, `empresaAsignada`, `status`, `inicio`, `fin`, `horasRequeridas`.
+  - `horas`: pestañas `/pendientes`, `/en-curso`, `/validadas`, `/rechazadas` con datos de `solicitudes_horas` filtrados por `universidad_id` y estado. Cada tarjeta debe mostrar `empresa_id`, `grupo_id`, fechas, estado y posible acción de aprobación/rechazo.
+  - `empresas`: vista de empresas con botones para abrir `ProfileViewerModal` y `Solicitar horas`.
+  - `notificaciones`: lista de avisos; idealmente debe venir de DB o de un servicio de notificaciones, no de datos estáticos.
+  - `perfil`: datos de la universidad y el encargado. Deben leerse de `universidades` y del perfil del usuario en `profiles`.
+  - `config`, `ayuda`, `acercade`: menús de navegación y ajustes, menos dependientes de DB, pero `config` puede usar datos del perfil actual.
+
+- Botones clave:
+  - `Ver empresa`: abre perfil de empresa usando `ProfileViewerModal` y carga datos de `empresas` o `profiles`.
+  - `Solicitar horas`: abre modal de solicitud. Debe insertar en `solicitudes_horas` con `universidad_id`, `empresa_id`, `grupo_id`, `periodoInicio`, `periodoFin`, `descripcion`, `reglamento`, `horasRequeridas`.
+  - `Crear grupo`: abre `GroupCreationModal` y crea registro en `grupos` y registros asociados en `estudiantes`.
+  - `Editar grupo`: actualiza metadatos de `grupos`.
+  - `Rechazar`: cambia estado de la solicitud de horas en `solicitudes_horas`.
+  - `Guardar perfil`: actualiza datos de la universidad en `universidades` y posiblemente `profiles`.
+
+- Relación con DB y otros dashboards:
+  - `dashboard-universidad` debe ser el epicentro del flujo de horas: la universidad solicita horas a empresas y luego valida solicitudes. Las empresas verán esas solicitudes desde `dashboard-empresa`.
+  - Las entidades compartidas son `empresas`, `grupos`, `estudiantes`, `solicitudes_horas` y `profiles`.
+  - El grupo genera la relación entre universidad y estudiantes; las horas se piden para un grupo y una empresa, y luego la empresa debe confirmar o responder.
+  - Si hay un dashboard de talento/alumno, ese dashboard debe mostrar el estado de su grupo y de las horas validadas por la universidad.
+
+dashboard-empresa.tsx
+----------------------
+- Secciones visibles:
+  - `inicio`: resumen de la empresa, estado del plan y accesos rápidos.
+  - `vacantes`: lista de vacantes creadas por la empresa. Aquí se espera usar una tabla `vacantes` o `puestos` con campos como `id`, `puesto`, `modalidad`, `plazas`, `estado`, `cierre`, `descripcion`, `requisitos`, `rangoSalarial`, `periodoPago`, `ubicacion`.
+  - `candidatos`: candidatos vinculados a vacantes. Debe consumir datos de `talentos` o `estudiantes` aplicantes, con filtros por estado de proceso.
+  - `horas-sociales`: solicitudes de horas entrantes y salientes de `solicitudes_horas`, especialmente aquellas donde `empresa_id` coincide con la empresa autenticada.
+  - `pagos`: historial de pagos y facturación. Debe mapearse a una tabla de facturas o registros de transacciones si existe.
+  - `notificaciones`: avisos sobre nuevas aplicaciones, solicitudes de horas o cambios de estado.
+  - `perfil`: datos de la empresa y representante. Debe usar `empresas` y `profiles`.
+  - `configuracion`: ajustes de cuenta y plan.
+  - `crear-vacante`: modal de creación de vacante multipaso. Debe insertar registros en la tabla de vacantes.
+  - `explorar`: búsqueda de talentos o proyectos externos.
+
+- Botones clave:
+  - `Crear vacante`: abre modal y crea registro en DB.
+  - `Ver candidato`: abre perfil completo del talento y debería cargar datos de `talentos`/`profiles`.
+  - `Actualizar plan`: llama a `updateEmpresaPlan` y actualiza campos de la empresa en DB.
+  - `Switch` de estado de vacante: cambiar `activo`/`pausado`/`cerrado`.
+
+- Relación con DB y otros dashboards:
+  - La empresa debe poder ver solicitudes de horas creadas por universidades en `solicitudes_horas` y actualizarlas.
+  - Debe enlazar candidatos y vacantes con los perfiles de talentos, que son la misma base que usa `dashboard-joventalento`.
+  - Si se aceptan horas sociales, la empresa informa a la universidad, cerrando el ciclo entre dashboards.
+
+dashboard-alumno.tsx
+---------------------
+- Secciones visibles:
+  - `home`: tablero estudiantil con avisos, cursos activos, progreso y atajos. Debe mostrar datos del estudiante (`profiles`/`estudiantes`) y su grupo actual.
+  - `explorar`: búsqueda de empresas y proyectos. Debe consultar empresas y oportunidades, idealmente `empresas` y `vacantes`.
+  - `cursos`: pestañas `lista` y `horario`. `lista` muestra los grupos o cursos inscritos; `horario` muestra el horario académico. Estos datos deben venir de las relaciones `grupos` + `estudiantes` + posibles tablas de horarios.
+  - `perfil`: datos personales y académicos del estudiante. Debe venir de `profiles` y `talentos` o `estudiantes`.
+  - `pagos`: historial de pagos estudiantiles. Debe venir de una tabla de pagos o facturas.
+  - `editarperfil`: formulario para actualizar datos personales.
+  - `resultados`: resultados académicos o de validación de horas.
+  - `configuracion`: ajustes de la cuenta.
+
+- Botones clave:
+  - `Notificaciones` (campana): abre modal o vista con mensajes.
+  - `Inscripción`: envía datos de inscripción/semestre a la DB.
+  - `Retiro` / `Ayuda`: acciones de soporte.
+
+- Relación con DB y otros dashboards:
+  - El alumno debe conectarse con `grupos` y `universidades` a través de su registro en `estudiantes`.
+  - Si el estudiante pertenece a un grupo que ha enviado o recibido horas, debe ver el estado de esa solicitud en su dashboard.
+  - El perfil del estudiante también debería poder verse desde `dashboard-empresa` y `dashboard-universidad` usando el mismo `profiles`.
+
+dashboard-joventalento.tsx
+--------------------------
+- Secciones visibles:
+  - `home`: vista principal con notificaciones, resumen de actividad, proyectos recientes y estado del servicio.
+  - `proyectos`: listado de proyectos o servicios ofrecidos por el talento. Debe cargarse de una tabla de `proyectos` o `servicios` relacionados con el usuario.
+  - `pagos`: historial de pagos recibidos o pendientes. Debe mapearse a transacciones reales de la DB.
+  - `perfil`: datos del talento, habilidades, redes y métricas. Debe venir de `talentos`, `profiles` y posiblemente `universidades`.
+  - `config` / `ayuda` / `acercade`: secciones de ajustes y soporte.
+
+- Botones clave:
+  - `Publicar servicio/vacante`: crear o editar ofertas.
+  - `Aplicar` o `Enviar propuesta`: interactuar con empresas.
+  - `Contactar`: abrir perfil de empresa o de universidad.
+
+- Relación con DB y otros dashboards:
+  - Este dashboard es el principal impacto del talento; debe usar `talentos` y `profiles`.
+  - Si un talento aplica a una vacante creada en `dashboard-empresa`, el estado de su postulación debe reflejarse aquí.
+  - Si el talento pertenece a una universidad, es la pieza final que cierra el flujo de horas sociales y proyectos con `dashboard-universidad`.
+
+Proceso ideal entre dashboards
+-----------------------------
+- Registro / login: todos los dashboards deberían apoyarse en `profiles` para normalizar usuario, email, rol y username.
+- Universidad crea o administra `grupos` y solicita horas sociales a `empresas`.
+- Empresa recibe la solicitud desde `solicitudes_horas`, revisa el grupo vinculado y responde (aceptar/rechazar).
+- El estudiante/talento del grupo debe poder ver el estado de la solicitud o el avance de validación.
+- El perfil abierto desde cualquiera de los dashboards debe resolver al mismo usuario en `profiles` y luego cargar la información específica de su tabla (`talentos`, `empresas`, `universidades`).
+- Los modales de detalle y edición (`GroupCreationModal`, `GroupDetailModal`, `ProfileViewerModal`) deben ser los puntos de unión entre vistas y datos reales.
+
+Resumen de lo que debe mostrarse en DB por dashboard
+---------------------------------------------------
+- Universidad: `universidades`, `grupos`, `estudiantes`, `empresas`, `solicitudes_horas`, `profiles`.
+- Empresa: `empresas`, `vacantes`/`puestos`, `talentos`/`estudiantes`, `solicitudes_horas`, `profiles`.
+- Alumno: `estudiantes`, `grupos`, `profiles`, `pagos`, `horarios` (o equivalentes), `notificaciones`.
+- Joven talento: `talentos`, `profiles`, `proyectos`/`servicios`, `pagos`, `vacantes`.
+
+Otros archivos importantes en `app/` y componentes compartidos
+------------------------------------------------------------
+- `app/_layout.tsx`: layout principal de Expo Router. Aquí debería definirse el theme global y el proveedor de traducción para que todos los dashboards compartan estilos y textos.
+- `app/(tabs)/index.tsx`: versión duplicada del login que probablemente está destinada a la ruta de tabs; hoy repite lógica de `app/iniciosesion.tsx`. Si se mantiene, debe unificarse con `services/authService.ts` y no duplicar la resolución de username.
+- `app/(tabs)/explore.tsx`: plantilla de ejemplo Expo. Si no se usa en producción debe limpiarse o convertirse en una vista real de búsqueda/explorar.
+- `app/(tabs)/_layout.tsx`: layout de la ruta de tabs. Es el lugar correcto para configurar navegación compartida, cabeceras y tema para las rutas de pestañas.
+- `app/modal.tsx`: componente/modal global. Su función es proporcionar una ventana emergente reutilizable; conviene verificar si se usa en lugar de modales específicos en cada dashboard.
+- `app/registro.tsx`: formulario de registro principal. Debe conectar con `registerTalento`, `registerEmpresa` y `registerUniversidad`, validar datos y asegurar que se cree la fila en `profiles` junto con las tablas específicas.
+- `app/supabase.ts`: inicializador de Supabase. Es clave para compartir la misma instancia en toda la app y debería exportar `supabase` sin duplicación.
+
+Componentes `src/components/*.tsx`
+-----------------------------------
+- `src/components/GroupCreationModal.tsx`: modal de creación de grupos. Aquí se construyen los datos del grupo y los estudiantes, por lo que debe mapearse directamente a inserciones en `grupos` y `estudiantes`.
+- `src/components/GroupDetailModal.tsx`: modal de detalle/edición de grupo. Debe soportar ver y editar propiedades de grupo, así como mostrar estudiantes vinculados.
+- `src/components/ProfileViewer.tsx`: componente que normaliza perfiles de `talentos`, `empresas` y `universidades`. Es crítico para mostrar el mismo formato de perfil en distintos dashboards.
+- `src/components/ProfileViewerModal.tsx`: modal que muestra `ProfileViewer` dentro de un overlay. Es el punto común para ver perfiles desde `dashboard-universidad`, `dashboard-empresa`, `dashboard-alumno` y `dashboard-joventalento`.
+
+Estos componentes y páginas forman la infraestructura compartida de la app. El objetivo debería ser reducir duplicación, usar `supabase.ts` como único origen de datos y centralizar la lógica común en `services/authService.ts` y los modales/reports compartidos.
+
+Si el sistema se implementa así, cada dashboard ya no será solo una interfaz aislada, sino una capa que refleja el mismo modelo de datos compartido y las mismas relaciones de negocio en Supabase.

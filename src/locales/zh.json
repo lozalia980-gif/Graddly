@@ -1,0 +1,16 @@
+{
+  "notifications": "通知",
+  "changeLanguage": "切换语言",
+  "searchPlaceholder": "搜索...",
+  "home": "首页",
+  "explorar": "探索",
+  "cursos": "课程",
+  "perfil": "我的资料",
+  "pagos": "付款",
+  "editarperfil": "编辑资料",
+  "resultados": "结果",
+  "configuracion": "设置",
+  "proyectos": "项目",
+  "verified": "已验证 ✓",
+  "languageChanged": "语言已切换为 {{lang}}"
+}

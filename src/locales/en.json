@@ -1,0 +1,16 @@
+{
+  "notifications": "Notifications",
+  "changeLanguage": "Change language",
+  "searchPlaceholder": "Search...",
+  "home": "Home",
+  "explorar": "Explore",
+  "cursos": "Courses",
+  "perfil": "My Profile",
+  "pagos": "Payments",
+  "editarperfil": "Edit Profile",
+  "resultados": "Results",
+  "configuracion": "Settings",
+  "proyectos": "Projects",
+  "verified": "Verified ✓",
+  "languageChanged": "Language changed to {{lang}}"
+}

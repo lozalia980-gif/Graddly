@@ -16,8 +16,8 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { supabase } from "../../lib/supabase";
-import { resolveEmailFromUsername } from "../../services/authService";
+import { supabase } from "../lib/supabase";
+import { resolveEmailFromUsername } from "../services/authService";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const OTP_LENGTH = 8;
@@ -186,7 +186,7 @@ export default function InicioSesion() {
     return `${maskedLocal}@${domain}`;
   };
 
-  function getDashboardRoute(role: string) {
+  const getDashboardRoute = (role: string) => {
     switch (role) {
       case "universidad":
         return "/dashboard-universidad";
@@ -196,7 +196,7 @@ export default function InicioSesion() {
       default:
         return "/dashboard-joventalento";
     }
-  }
+  };
 
   const [loading, setLoading] = useState(false);
 
