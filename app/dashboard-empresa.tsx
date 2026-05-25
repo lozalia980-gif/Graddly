@@ -16,6 +16,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   Alert,
+  Image,
   Modal,
   SafeAreaView,
   ScrollView,
@@ -980,6 +981,26 @@ export default function DashboardEmpresa() {
 
   // ── Perfil panel
   const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [empresaLogoUrl, setEmpresaLogoUrl] = useState<string | null>(null);
+  const [empresaBannerUrl, setEmpresaBannerUrl] = useState<string | null>(null);
+  const [currentEmpresaId, setCurrentEmpresaId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        setCurrentEmpresaId(data.user.id);
+        supabase
+          .from("empresas")
+          .select("foto_logo, foto_banner")
+          .eq("id", data.user.id)
+          .single()
+          .then(({ data: emp }) => {
+            if (emp?.foto_logo) setEmpresaLogoUrl(emp.foto_logo);
+            if (emp?.foto_banner) setEmpresaBannerUrl(emp.foto_banner);
+          });
+      }
+    });
+  }, []);
 
   // ── Candidate filters
   const [candidateUserFilter, setCandidateUserFilter] =
@@ -3485,6 +3506,13 @@ export default function DashboardEmpresa() {
       contentContainerStyle={s.sectionContent}
     >
       <View style={s.profileBanner}>
+        {empresaBannerUrl && (
+          <Image
+            source={{ uri: empresaBannerUrl }}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode="cover"
+          />
+        )}
         <View style={s.bannerOverlay} />
         <View style={s.bannerContent}>
           <View style={s.bigAvatar}>
@@ -3514,7 +3542,13 @@ export default function DashboardEmpresa() {
         </View>
         <TouchableOpacity
           style={[s.btnPrimary, { alignSelf: "flex-start", marginTop: 12 }]}
-          onPress={() => setShowProfileSettings(!showProfileSettings)}
+          onPress={() => {
+            // El logo y banner se editan desde el formulario de edición de perfil.
+            // Para actualizar el logo directamente:
+            // const url = await pickAndUploadImage('public-media', `${currentEmpresaId}/${Date.now()}-logo.jpg`);
+            // if (url) { await supabase.from('empresas').update({ foto_logo: url }).eq('id', currentEmpresaId); setEmpresaLogoUrl(url); }
+            setShowProfileSettings(!showProfileSettings);
+          }}
         >
           <Ionicons
             name="settings-outline"

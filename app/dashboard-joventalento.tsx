@@ -10,9 +10,10 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -25,6 +26,11 @@ import {
   View,
 } from "react-native";
 import TranslatedText from "../components/TranslatedText";
+import { supabase } from "../lib/supabase";
+import {
+  pickAndUploadImage,
+  updateProfilePhoto,
+} from "../services/storageService";
 import ProfileViewerModal from "../src/components/ProfileViewerModal";
 import { useTranslationContext } from "../src/context/TranslationContext";
 import handleLogout from "../src/services/authService";
@@ -583,6 +589,25 @@ export default function DashboardJovenTalento() {
   const [profileUserType, setProfileUserType] = useState<
     "talento" | "empresa" | "universidad"
   >("empresa");
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        setCurrentUserId(data.user.id);
+        supabase
+          .from("talentos")
+          .select("foto_perfil")
+          .eq("id", data.user.id)
+          .single()
+          .then(({ data: t }) => {
+            if (t?.foto_perfil) setProfilePhotoUrl(t.foto_perfil);
+          });
+      }
+    });
+  }, []);
 
   const openProfileViewer = (
     userId: string,
@@ -1817,9 +1842,42 @@ export default function DashboardJovenTalento() {
       contentContainerStyle={st.sectionContent}
     >
       <View style={st.profileBanner}>
-        <View style={st.profileAvatarLg}>
-          <Ionicons name="person-outline" size={40} color={C.purple} />
-        </View>
+        <TouchableOpacity
+          onPress={async () => {
+            if (!currentUserId) return;
+            setUploadingPhoto(true);
+            const url = await pickAndUploadImage(
+              "public-media",
+              `${currentUserId}/${Date.now()}-foto_perfil.jpg`,
+            );
+            if (url) {
+              const ok = await updateProfilePhoto(
+                currentUserId,
+                "talentos",
+                url,
+              );
+              if (ok) setProfilePhotoUrl(url);
+            }
+            setUploadingPhoto(false);
+          }}
+          style={[
+            st.profileAvatarLg,
+            {
+              overflow: "hidden",
+              justifyContent: "center",
+              alignItems: "center",
+            },
+          ]}
+        >
+          {profilePhotoUrl ? (
+            <Image
+              source={{ uri: profilePhotoUrl }}
+              style={{ width: 80, height: 80, borderRadius: 40 }}
+            />
+          ) : (
+            <Ionicons name="person-outline" size={40} color={C.purple} />
+          )}
+        </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={[st.sectionTitle, { fontSize: 22, marginBottom: 2 }]}>
             John Doe
@@ -2179,12 +2237,18 @@ export default function DashboardJovenTalento() {
                       label="Seleccionar imagenes"
                       small
                       style={{ marginTop: 12 }}
-                      onPress={() =>
-                        Alert.alert(
-                          "Imagenes",
-                          "Selector de imagenes proximamente.",
-                        )
-                      }
+                      onPress={async () => {
+                        if (!currentUserId) return;
+                        const url = await pickAndUploadImage(
+                          "public-media",
+                          `${currentUserId}/${Date.now()}-servicio.jpg`,
+                        );
+                        if (url)
+                          Alert.alert(
+                            "Imagen subida",
+                            "La imagen fue guardada correctamente.",
+                          );
+                      }}
                     />
                   </View>
                 </>

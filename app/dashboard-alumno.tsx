@@ -11,8 +11,9 @@
 
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -24,6 +25,12 @@ import {
   View,
 } from "react-native";
 import TranslatedText from "../components/TranslatedText";
+import { supabase } from "../lib/supabase";
+import {
+  pickAndUploadImage,
+  updateProfilePhoto,
+  updateUserProfile,
+} from "../services/storageService";
 import ProfileViewerModal from "../src/components/ProfileViewerModal";
 import { useTranslationContext } from "../src/context/TranslationContext";
 import handleLogout from "../src/services/authService";
@@ -418,6 +425,25 @@ export default function DashboardAlumno() {
   const [editTel, setEditTel] = useState("+503 7000-0000");
   const [editCarrera] = useState("Ing. en Sistemas");
   const [editSemestre] = useState("5.º semestre");
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        setUserId(data.user.id);
+        supabase
+          .from("alumnos")
+          .select("foto_perfil")
+          .eq("id", data.user.id)
+          .single()
+          .then(({ data: profile }) => {
+            if (profile?.foto_perfil) setProfilePhotoUrl(profile.foto_perfil);
+          });
+      }
+    });
+  }, []);
 
   // ── Horas laborales
   const [horasStarted, setHorasStarted] = useState(false);
@@ -1280,11 +1306,41 @@ export default function DashboardAlumno() {
           <Text style={s.pageTitle}>Editar Mi Perfil</Text>
         </View>
         <View style={[s.profileHeader, { marginBottom: 16 }]}>
-          <View style={s.profileAvatar}>
-            <Text style={s.profileAvatarText}>JD</Text>
-          </View>
+          <TouchableOpacity
+            style={[s.profileAvatar, { overflow: "hidden" }]}
+            onPress={async () => {
+              if (!userId) return;
+              setUploadingPhoto(true);
+              const url = await pickAndUploadImage(
+                "public-media",
+                userId + "/" + Date.now() + "-foto_perfil.jpg",
+              );
+              if (url) {
+                const ok = await updateProfilePhoto(userId, "alumnos", url);
+                if (ok) {
+                  setProfilePhotoUrl(url);
+                  showToast(
+                    "Foto actualizada",
+                    "Tu foto de perfil fue guardada.",
+                  );
+                }
+              }
+              setUploadingPhoto(false);
+            }}
+          >
+            {profilePhotoUrl ? (
+              <Image
+                source={{ uri: profilePhotoUrl }}
+                style={{ width: 72, height: 72, borderRadius: 36 }}
+              />
+            ) : (
+              <Text style={s.profileAvatarText}>JD</Text>
+            )}
+          </TouchableOpacity>
           <Text style={[s.muted, { fontSize: 12, marginTop: 8 }]}>
-            Foto de perfil (próximamente)
+            {uploadingPhoto
+              ? "Subiendo foto..."
+              : "Toca para cambiar foto de perfil"}
           </Text>
         </View>
         <Card style={{ padding: 16 }}>
@@ -1341,9 +1397,20 @@ export default function DashboardAlumno() {
           >
             <TouchableOpacity
               style={s.btnPrimary}
-              onPress={() => {
-                showToast("Perfil actualizado", "Tus datos fueron guardados.");
-                navigate("perfil");
+              onPress={async () => {
+                if (!userId) return;
+                const ok = await updateUserProfile(userId, "alumnos", {
+                  nombre: editNombre,
+                  email: editCorreo,
+                  telefono: editTel,
+                });
+                if (ok) {
+                  showToast(
+                    "Perfil actualizado",
+                    "Tus datos fueron guardados.",
+                  );
+                  navigate("perfil");
+                }
               }}
             >
               <Text style={s.btnPrimaryText}>Guardar cambios</Text>
